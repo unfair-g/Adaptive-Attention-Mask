@@ -140,3 +140,19 @@ dmypy.json
 *.pth
 notebooks/ICIP/
 sweeps/csv/
+
+# Optional: visualization, ablation code, and one-off analysis (omit from core GitHub push)
+visualize_*.py
+kd_epochs_ablation/
+src_val/
+src_baseline/
+mkd_ocl/
+scripts/
+inference_visualize.py
+analyze_*.py
+compare_methods.py
+eval_seg_val_miou.py
+config/seg/*ablation*.yaml
+config/examples/
+config/icml24/
+Momentum KD.pdf

@@ -1,0 +1,90 @@
+# Configuration for ER+EMA (original src methods) Online Continual Semantic Segmentation
+# Dataset: Cityscapes
+# Model: SegFormer
+#
+# This config uses ONLY `src/learners/segmentation` original learners (no v3 attention map distillation).
+# In particular, it sets `learner: ER_EMA_Seg`, which trains an EMA teacher and performs
+# logit KD on old pixels (with pseudo-label recovery for old classes).
+
+# Training settings
+train: true
+epochs: 1
+batch_size: 2
+learning_rate: 0.00006
+weight_decay: 0.01
+optim: AdamW
+grad_clip: 1.0
+
+# Model settings
+segformer_variant: mit_b0
+freeze_encoder: false
+pretrained: true
+
+# Dataset settings
+dataset: cityscapes
+data_root_dir: ./data/cityscapes/
+img_size: [512, 1024]
+n_classes: 19
+ignore_index: 255
+num_workers: 4
+nb_channels: 3
+
+# =====================================================
+# Continual Learning Task Configuration
+# =====================================================
+training_type: inc
+
+# Task Split Configuration (choose one)
+# "X-Y" means: Task0 has X classes, and every subsequent task adds Y classes until
+# the total n_classes is reached. For Cityscapes n_classes=19, "11-5" -> [11] + [5] + [3] = 3 tasks.
+increment: "11-1"
+# Alternative:
+# n_tasks: 4
+
+class_order: sequential
+label_mode: current_only
+
+# Memory settings
+mem_size: 500
+mem_batch_size: 2
+buffer: seg_reservoir
+drop_method: random
+mem_iters: 1
+
+# EMA settings
+ema_alpha: 0.9999
+
+# =====================================================
+# Logit KD settings (original ER+EMA)
+# =====================================================
+alpha_kd: 3.0
+kd_temperature: 3.0
+
+# =====================================================
+# Class-balanced retrieval (used by the src learner)
+# =====================================================
+use_current_class_balance: false
+use_balanced_sampling: false
+balanced_sampling_mode: minority
+
+# =====================================================
+# Evaluation / prediction filtering
+# =====================================================
+eval_mode: avg
+pred_confidence_threshold: 0.01
+
+# Logging
+learner: ER_EMA_Seg
+tag: cityscapes_ema_original_seg
+logs_root: ./logs/
+results_root: ./results/
+ckpt_root: ./checkpoints/
+save_ckpt: true
+save_all_task_checkpoints: false
+no_wandb: true
+verbose: false
+
+# Experiment
+seed: 0
+n_runs: 1
+

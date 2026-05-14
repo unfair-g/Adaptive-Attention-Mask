@@ -151,6 +151,10 @@ options:
   --labels-order LABELS_ORDER [LABELS_ORDER ...]
                         In which order to you want to see the labels ? Random if not
                         specified.
+  --task-classes TASK_CLASSES
+                        Custom class assignment for each task. Format: 
+                        '[[0,1,2],[3,4],[5,6,7,8,9]]'. Overrides labels-order and 
+                        n-tasks when specified.
   --blurry-scale BLURRY_SCALE
   --temperature T       temperature parameter for softmax
   --mem-size MEM_SIZE   Memory size for continual learning
@@ -197,6 +201,45 @@ When using a configuration file, parameters specified in the .yaml cannot be ove
 ```bash
 python main.py --data-root /data/dataset/torchvision --config config/icml24/all/ER,cifar10,m1000mbs64sbs10,blurry500.yaml
 ```
+
+## Custom Task Classes Configuration
+
+You can specify exactly which classes each task should learn using the `--task-classes` parameter. This allows for non-uniform task sizes and custom class distributions.
+
+### Via Configuration File (YAML)
+
+```yaml
+# config/examples/custom_task_classes_example.yaml
+learner         :       ER
+dataset         :       cifar10
+training_type   :       inc
+# ... other parameters ...
+
+# Custom task classes - each list defines one task
+task_classes:
+  - [0, 1, 2]           # Task 0: 3 classes
+  - [3, 4]              # Task 1: 2 classes
+  - [5, 6, 7, 8, 9]     # Task 2: 5 classes
+```
+
+Run with:
+```bash
+python main.py --data-root /data/dataset/torchvision --config config/examples/custom_task_classes_example.yaml
+```
+
+### Via Command Line
+
+```bash
+python main.py --data-root /data/dataset/torchvision \
+    --learner ER --dataset cifar10 --training-type inc \
+    --task-classes "[[0,1,2],[3,4],[5,6,7,8,9]]"
+```
+
+**Notes:**
+- When `task_classes` is specified, it automatically sets `n_tasks` and `labels_order`
+- Each inner list specifies the class indices for one task
+- Tasks are processed in order (first list = Task 0, etc.)
+- Classes within each task can be in any order
 
 ## output example
 

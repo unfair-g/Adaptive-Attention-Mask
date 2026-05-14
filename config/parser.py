@@ -83,6 +83,10 @@ class Parser:
         parser.add_argument('--num-workers', '-w', type=int, default=0, help='Number of workers to use for dataloader.')
         parser.add_argument("--n-tasks", type=int, default=5, help="How many tasks do you want ?")
         parser.add_argument("--labels-order", type=int, nargs='+', help="In which order to you want to see the labels ? Random if not specified.")
+        parser.add_argument("--task-classes", type=str, default=None,
+                            help="Custom class assignment for each task. Format: '[[0,1,2],[3,4],[5,6,7,8,9]]' or via config file as list of lists. Overrides labels-order and n-tasks when specified.")
+        parser.add_argument("--increment", type=str, default=None,
+                            help="Class increment configuration. Format: 'X-Y' where X is base classes (initial task) and Y is incremental classes per subsequent task. Example: '50-10' means 50 classes in task 0, then 10 classes in each subsequent task. Overrides n-tasks when specified.")
         parser.add_argument("--blurry-scale", type=int, default=3000)
         # Contrastive loss parameters
         parser.add_argument('--temperature', default=0.07, type=float, 

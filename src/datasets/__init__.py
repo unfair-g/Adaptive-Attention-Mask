@@ -11,6 +11,9 @@ from .split_ImageNet import SplitImageNet
 from .blurry_cifar10 import BlurryCIFAR10
 from .blurry_cifar100 import BlurryCIFAR100
 from .blurry_tiny import BlurryTiny
+from .cityscapes import Cityscapes, SplitCityscapes, BlurryCityscapes
+from .bdd100k import BDD100K, SplitBDD100K, BlurryBDD100K
+from .mapillary import MapillaryVistas, SplitMapillaryVistas, BlurryMapillaryVistas
 
 __all__ = (
     'MNIST', 
@@ -23,5 +26,14 @@ __all__ = (
     'SplitImageNet',
     'BlurryCIFAR10',
     'BlurryCIFAR100',
-    'BlurryTiny'
+    'BlurryTiny',
+    'Cityscapes',
+    'SplitCityscapes',
+    'BlurryCityscapes',
+    'BDD100K',
+    'SplitBDD100K',
+    'BlurryBDD100K',
+    'MapillaryVistas',
+    'SplitMapillaryVistas',
+    'BlurryMapillaryVistas'
     )

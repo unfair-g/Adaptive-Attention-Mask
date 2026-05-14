@@ -1,0 +1,367 @@
+# Configuration for ER+EMA+Attention Map Distillation Online Continual Semantic Segmentation
+# Dataset: BDD100K
+# Model: SegFormer with EMA teacher and Attention Map Distillation (v3)
+#
+# Attention Map Distillation Core Idea:
+#   - SegFormer's attention maps capture "where the model looks"
+#   - Teacher knows where to look for old classes
+#   - Student learns to mimic teacher's attention pattern
+#
+# Formula:
+#   L_Attn = Σ_l weight_l × (1 - cosine_similarity(Attn_S^l, Attn_T^l))
+#
+# Benefits:
+#   - Preserves attention patterns for old class recognition
+#   - More interpretable than feature-level distillation
+#   - Robust to representation drift
+
+# Training settings
+train: true
+epochs: 1
+batch_size: 2
+# Learning rate: 6e-5 is recommended for fine-tuning SegFormer
+# Higher rates (1e-4) can cause instability, lower rates (1e-5) train slower
+learning_rate: 0.00006
+weight_decay: 0.01
+optim: AdamW
+grad_clip: 1.0
+
+# Model settings - Using SegFormer-B0 for efficiency
+segformer_variant: mit_b0
+freeze_encoder: false
+pretrained: true
+
+# Dataset settings
+dataset: bdd100k
+data_root_dir: ./data/bdd100k/
+img_size: [576, 1024]
+n_classes: 19  # Will be auto-adjusted to 20 if using background mode
+ignore_index: 255
+num_workers: 4
+nb_channels: 3
+
+# =====================================================
+# Continual Learning Task Configuration
+# =====================================================
+training_type: inc
+
+# -----------------------------------------------------
+# Task Split Configuration (Two Methods, Choose One)
+# -----------------------------------------------------
+#
+# Method 1: Simple n_tasks (Equal Split)
+#   n_tasks: 4  -> Splits 19 classes into 4 equal tasks
+#   Classes per task: [5, 5, 5, 4] (last task gets remainder)
+#
+# Method 2: Increment Format "X-Y" (Flexible Split)
+#   increment: "X-Y"
+#   - X (Base Classes): Number of classes in Task 0 (initial task)
+#   - Y (Incremental Classes): Number of new classes per subsequent task
+#
+#   Cityscapes 19-class Examples:
+#     increment: "5-5"   -> 4 tasks: [5] + [5] + [5] + [4] = 19 classes
+#     increment: "10-3"  -> 4 tasks: [10] + [3] + [3] + [3] = 19 classes
+#     increment: "7-4"   -> 4 tasks: [7] + [4] + [4] + [4] = 19 classes
+#     increment: "1-1"   -> 19 tasks: each task has 1 class (极端细粒度)
+#
+#   Note: When 'increment' is specified, 'n_tasks' is auto-calculated.
+#         The last task may have fewer classes if not evenly divisible.
+# -----------------------------------------------------
+
+# Current configuration: 5 base classes, 5 classes per increment
+# Creates 4 tasks: [5] + [5] + [5] + [4] = 19 classes
+increment: "11-1"
+
+# Alternative: Use n_tasks for equal split (comment out increment above)
+# n_tasks: 4
+
+# Class order strategy
+class_order: sequential
+# Options:
+#   sequential: classes 0,1,2,... in order
+#   random: randomly shuffle class order (set seed for reproducibility)
+
+# -----------------------------------------------------
+# Label Mode Configuration (Independent of increment)
+# -----------------------------------------------------
+# label_mode controls how labels are processed during TRAINING:
+#   current_only: only current task labels, others=255(ignore) [严格模式，推荐]
+#   current_and_old: current+old visible, future=255
+#   unknown_as_background: current+old visible, unknown/future=class19(background)
+#   all_unknown_as_background: only current visible, all others=class19
+#
+# NOTE: increment 和 label_mode 是独立配置！
+#   - increment 控制任务划分 (每个任务包含哪些类别)
+#   - label_mode 控制标签处理 (非当前类别的像素如何标注)
+#   - 无论使用 increment 还是 n_tasks，label_mode 都会被正确应用
+#
+# For TEST splits, label_mode is always 'current_and_old' to evaluate all seen classes.
+label_mode: current_only
+
+# Memory settings
+# Increase memory size for better coverage of old classes
+mem_size: 1000
+mem_batch_size: 4
+buffer: seg_reservoir
+drop_method: random
+mem_iters: 2
+
+# EMA settings
+# ema_alpha: higher = slower update, more stable teacher
+# Recommended: 0.99 for faster adaptation, 0.999 for more stability
+ema_alpha: 0.9999
+
+# =====================================================
+# Teacher Protection Strategy (防止教师-学生收敛)
+# =====================================================
+# 问题: 在多epoch训练中，EMA更新会导致教师逐渐收敛到学生
+#       使教师失去"历史知识锚定"作用
+#
+# ema_update_strategy: 教师更新策略
+# - 'step': 每步更新 (原始方法，可能导致收敛)
+# - 'task_start_anchor': 任务开始时保存锚点，限制教师漂移
+# - 'adaptive_alpha': 根据距离自适应调整alpha，距离小时更新慢
+# - 'frozen': 教师在任务期间冻结，仅在任务结束时更新
+#
+# 推荐:
+#   - 在线单epoch: 'step' (足够稳定)
+#   - 离线多epoch: 'frozen' 或 'task_start_anchor'
+ema_update_strategy: step
+
+# 任务级别EMA alpha (用于 'frozen' 策略的任务结束更新)
+# 较低的值 (如0.7) 让教师吸收更多学生知识
+task_ema_alpha: 0.7
+
+# 最大教师漂移 (用于 'task_start_anchor' 策略)
+# 限制教师从任务开始锚点的最大L2距离
+max_teacher_drift: 0.1
+
+# EMA update uses fixed step-wise strategy in code.
+
+# Logit KD settings
+# alpha_kd: weight for Logit KD loss
+# NOTE: Logit KD is automatically masked to OLD CLASSES ONLY
+#       This prevents teacher (who doesn't know new classes) from misleading student
+#       Critical for Task 3+ performance!
+alpha_kd: 1.0
+kd_temperature: 4.0
+# Evaluation mode: 'student', 'teacher', or 'avg' (averaged student+teacher)
+eval_mode: avg
+# Prediction confidence threshold for evaluation
+# If max probability < threshold, mark prediction as ignored (not evaluated)
+# Set to null/0 to disable. Recommended: 0.3 ~ 0.5
+pred_confidence_threshold: 0.01
+
+# =====================================================
+# Segmentation Loss Settings (from offline experiments)
+# =====================================================
+# seg_loss_type: 分割损失类型选择
+# - 'ce': 标准 Cross-Entropy Loss (default)
+# - 'focal': Focal Loss, 聚焦于难样本，处理类别不平衡
+# - 'ohem': Online Hard Example Mining, 只使用最难的像素
+# - 'focal_ohem': Focal + OHEM 组合
+seg_loss_type: focal
+
+# Focal Loss settings
+# L_Focal = -α(1-p_t)^γ log(p_t)
+# focal_alpha: class weighting factor (default: 0.25)
+# focal_gamma: focusing parameter, higher = more focus on hard examples (default: 2.0)
+focal_alpha: 0.25
+focal_gamma: 2.0
+
+# Class balancing for current task classes
+# 解决当前任务内的类别不平衡问题 (如 Class 18 像素数远大于 Class 14-17)
+# use_current_class_balance: 是否启用当前任务类别的逆频率权重
+# 公式: w_c = (total_pixels / (num_classes * class_c_pixels))^power
+# 效果: 小样本类别获得更高权重, 防止被大类压制
+use_current_class_balance: false
+
+# class_balance_power: 权重缩放幂次
+# 1.0 = 线性逆频率 (强平衡)
+# 0.5 = 开方逆频率 (中等平衡, 推荐)
+# 例如: Class18有1M像素, Class14有50k像素
+#   power=1.0: Class14权重 = 20x, Class18权重 = 1x (极端)
+#   power=0.5: Class14权重 = 4.5x, Class18权重 = 1x (温和)
+class_balance_power: 0.5
+
+# class_balance_max: 最大权重上限, 防止极端权重
+class_balance_max: 10.0
+
+# =====================================================
+# Attention Map Distillation Settings
+# =====================================================
+# attention_start_task: which task to START applying attention KD (default: 1)
+# Task 0 = first task, teacher has no old knowledge yet
+# Task 1+ = subsequent tasks, teacher has learned from previous tasks
+attention_start_task: 1
+
+# attention_kd_weight: weight for attention distillation loss
+# Higher values = stronger attention pattern preservation
+# Increased from 1.0 to 5.0 to better preserve old knowledge
+attention_kd_weight: 5.0
+
+# active_attention_stages: which encoder stages to extract attention from
+# Stage indices: 0=Stage1, 1=Stage2, 2=Stage3, 3=Stage4
+# Stage 2 (1/16 res) and Stage 3 (1/32 res, most semantic) are recommended
+active_attention_stages: [2, 3]
+
+# attention_stage_weights: weights for each active stage
+# Higher weight for Stage 3 (more semantic)
+attention_stage_weights: [1.0, 1.5]
+
+# attention_loss_type: loss function for attention matching
+# 'cosine': cosine similarity (recommended, scale-invariant)
+# 'mse': Mean Squared Error
+# 'kl': KL divergence
+attention_loss_type: cosine
+
+# =====================================================
+# Masked Attention Distillation (MAD) Settings
+# =====================================================
+# 核心逻辑: 不让教师模型指导它不懂的区域 (当前新类别)
+# 
+# 问题: 对于新类像素, 教师的注意力模式是基于旧知识的
+#       让学生模仿教师在新类区域的注意力可能会误导学生
+#
+# 解决: 在计算注意力蒸馏损失时, 将涉及当前新类别像素的位置权重置为 0:
+#       L_Attn = Σ mask × (1 - cos_sim(Attn_S, Attn_T))
+#       其中 mask[i] = 0 如果像素 i 是当前新类, 否则 mask[i] = 1
+#
+# use_masked_distillation: 是否启用掩码注意力蒸馏
+use_masked_distillation: true
+
+# =====================================================
+# STU-Mask Settings (Spatial-Temporal Uncertainty Mask)
+# =====================================================
+# STU-Mask 是一种连续权重掩码机制，结合了空间维度的认知不确定性和
+# 时间维度的知识漂移稳定性，用于动态调节注意力蒸馏的权重。
+#
+# 核心公式:
+#   M_STU = (1 - Mask_new) × exp(-H(A_s)) × (1 - exp(-||ΔAttn||/T))
+#
+# 其中:
+#   - Mask_new: 新类区域的硬屏蔽 (来自 MAD)
+#   - H(A_s): 学生模型注意力图的熵 (空间不确定性)
+#   - ||ΔAttn||: 学生与教师注意力中心的L2偏移 (时间稳定性)
+#   - T: 温度参数，控制时间稳定性项的敏感度
+#
+# 理论优势:
+#   1. 空间维度: 高熵区域(注意力分散)获得较低权重，允许模型灵活重塑
+#   2. 时间维度: 偏移剧烈区域获得较高锚定权重，强制回归稳定知识模式
+#   3. 从"硬"到"软": 二值屏蔽升级为连续分布掩码，更符合神经网络学习特性
+#
+# stu_enabled: 是否启用 STU-Mask 机制
+#   如果为 false，将回退到原始的 MAD (二值掩码)
+stu_enabled: true
+
+# stu_eps: 数值稳定性参数
+#   用于防止 log(0) 等数值问题
+#   通常不需要修改
+stu_eps: 1e-8
+
+# stu_entropy_gamma: 熵值权重调节因子
+#   控制归一化熵值权重曲线的形状
+#   gamma = 1.0: 线性映射，权重随熵值线性下降
+#   gamma = 1.5: 中等曲率，平衡平滑度和敏感性（推荐默认值）
+#   gamma = 2.0: 二次曲线，权重下降更快，更强调低熵区域
+#   推荐范围: 1.0 ~ 2.0
+stu_entropy_gamma: 1.5
+
+# cosine_entropy_alpha: 仅在 attention_loss_type=cosine 时生效
+#   W_adaptive = w_difference + alpha * w_entropy * 1(margin < threshold)
+cosine_entropy_alpha: 1.0
+
+# stu_min_mask_value: STU mask 的最小值
+#   确保即使熵很高或 l2_diff 很小时，mask 值也不会太小
+#   推荐值: 0.0 ~ 0.1 (0.0 = 禁用，0.1 = 确保至少 10% 的权重)
+#   默认值: 0.0 (禁用)
+stu_min_mask_value: 0.0
+
+stu_fallback_enabled: false
+
+# stu_margin_threshold: Margin阈值，用于区分边界区域和清晰区域
+#   Margin = Top-1概率 / Top-2概率
+#   Margin >= 阈值: 清晰区域（单一类别主导）
+#   Margin < 阈值: 边界区域（多类别重叠）
+#   推荐值: 1.2 ~ 2.0
+#   默认值: 1.5
+stu_margin_threshold: 1.2
+
+# stu_margin_space: 教师 margin（top1/top2）在哪个空间算
+#   pooled — 先把 teacher_probs 双线性到 pool_size（与注意力 token 对齐）
+#   label  — 先对齐到标签图 H×W（像素级语义），再双线性到 pool_size，再与 STU 相乘（当前使用）
+stu_margin_space: label
+
+# stu_weight_mode: 熵权重与差值权重的空间粒度
+#   global: 每张图各一个标量，broadcast 到所有池化格点（与旧版一致）
+#   local_pixel: 每个池化格点各自的 w_entropy 与 w_difference（原生 4D 注意力时用按 query 熵 + 逐维差值）
+#   label_pixel: 先在标签分辨率 H×W 计算 entropy/diff 权重图，再下采样到 pool_size 后用于 attention KD
+stu_weight_mode: label_pixel
+
+# mad_relaxed_threshold: current-only 场景下，teacher 置信度过滤阈值
+#   在 ignore 区域中，只有 max_prob > 该阈值且 teacher 预测为 old class 才纳入蒸馏
+#   默认 0.001（非常宽松）
+mad_relaxed_threshold: 0.1
+
+# stu_pool_size: 用于计算熵的池化大小
+#   注意力图会被下采样到此尺寸以计算空间熵
+#   较小的值: 计算更快，但空间分辨率较低
+#   较大的值: 保留更多细节，但计算开销更大
+#   推荐: 32 (与 attention_distillation 的 pool_size 保持一致)
+stu_pool_size: 32
+
+# attention_head_aggregation: 注意力头聚合方式
+#   'mean': 对所有注意力头取平均 (推荐，更稳定)
+#   'max': 取所有注意力头的最大值 (更关注最强响应)
+attention_head_aggregation: mean
+
+# =====================================================
+# Class-Balanced Buffer Retrieval
+# =====================================================
+# 从 memory buffer 中平衡采样，确保小样本类别被充分回放
+# 解决问题: buffer 中大类 (如道路) 样本过多，小类 (如摩托车) 样本稀少
+#           随机采样会导致小类回放不足，加剧遗忘
+#
+# use_balanced_sampling: 是否启用平衡采样
+use_balanced_sampling: false
+
+# balanced_sampling_mode: 采样模式
+# - 'old_classes': 仅平衡旧类别 (防止遗忘，推荐)
+# - 'all_seen': 平衡所有已见类别
+# - 'minority': 优先采样小样本类别 (基于逆频率权重)
+# - 'mixed': 按 mixed_replay_ratios 分配 target_pixel_ratio 与 minority 两路回放
+# - 'target_pixel_ratio': 整批均按旧类像素占比加权（单路）
+# mixed_replay_ratios: [w_tpr, w_minority] 整数权重，如 [1,1]≈各一半；[3,2]≈60% TPR + 40% minority
+mixed_replay_ratios: [1, 1]
+balanced_sampling_mode: mixed
+
+# =====================================================
+# Data Augmentation Settings (from offline experiments)
+# =====================================================
+# Adaptive Replay Settings (from offline experiments)
+# =====================================================
+# 自适应回放: 后期 epoch 使用更多回放样本强化旧知识
+# 公式: replay_size = base_size × (1.0 + epoch × 0.5), 最大为 max_multiplier
+#
+# use_adaptive_replay: 是否启用自适应回放大小 (主要用于离线训练)
+use_adaptive_replay: false
+
+# max_replay_multiplier: 最大回放倍数
+max_replay_multiplier: 3.0
+
+# Learner - Attention Map Distillation (v3)
+learner: ER_EMA_Attention_Seg
+
+# Logging
+tag: cityscapes_ema_attention_seg_11-1
+logs_root: ./logs/
+results_root: ./results/
+ckpt_root: ./checkpoints/
+save_ckpt: true
+save_all_task_checkpoints: false
+no_wandb: true
+verbose: false
+
+# Experiment
+seed: 0
+n_runs: 1

@@ -1,0 +1,62 @@
+# Configuration for ER+EMA Online Continual Semantic Segmentation
+# Dataset: Mapillary Vistas mapped to Cityscapes 19 classes
+
+# Training settings
+train: true
+epochs: 1
+batch_size: 2
+learning_rate: 0.00006
+weight_decay: 0.01
+optim: AdamW
+grad_clip: 1.0
+
+# Model settings
+segformer_variant: mit_b0
+freeze_encoder: false
+pretrained: true
+
+# Dataset settings
+dataset: mapillary
+data_root_dir: ./data/mapillary/
+img_size: [576, 1024]
+n_classes: 19
+ignore_index: 255
+num_workers: 4
+nb_channels: 3
+
+# Continual Learning Task Configuration
+training_type: inc
+increment: "11-5"
+class_order: sequential
+label_mode: current_only
+
+# Memory settings
+mem_size: 500
+mem_batch_size: 4
+buffer: seg_reservoir
+drop_method: random
+mem_iters: 1
+
+# EMA settings
+ema_alpha: 0.9999
+
+# KD settings
+alpha_kd: 3.0
+kd_temperature: 3.0
+
+# Evaluation / prediction filtering
+pred_confidence_threshold: 0.15
+
+# Logging
+learner: ER_EMA_Seg
+tag: mapillary_ema_original_seg
+logs_root: ./logs/
+results_root: ./results/
+ckpt_root: ./checkpoints/
+save_ckpt: true
+no_wandb: true
+verbose: false
+
+# Experiment
+seed: 0
+n_runs: 1
